@@ -1,0 +1,19 @@
+version: '3.1'
+
+networks:
+  instractor-network:
+    external:
+      name: instractor-network
+
+services:
+  instractor-bot:
+    container_name: "instractor-bot"
+    image: golang:1.15beta1-alpine3.12
+    volumes:
+      - .:/go/instractor
+    working_dir: /go/instractor
+    command: go run bot.go
+    environment:
+      - TGTOKEN=${TGTOKEN}
+    networks:
+      - instractor-network
