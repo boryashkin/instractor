@@ -62,46 +62,67 @@ func handleAsync(update tgbotapi.Update, bot *tgbotapi.BotAPI) {
 
 	msg := tgbotapi.NewMessage(update.Message.Chat.ID, update.Message.Text)
 	msg.ReplyToMessageID = update.Message.MessageID
-	bot.Send(msg)
+	_, err := bot.Send(msg)
+	if err != nil {
+		log.Printf("Failed to send a response [%s]", err.Error())
+	}
 }
 
 func handleInstaUrl(update *tgbotapi.Update) *tgbotapi.Update {
-	log.Printf("Got [%s], parsing", update.Message.Text)
+	log.Printf(
+		"Got [%s], parsing, uid [%d], fname [%s], username [%s], lang [%s]",
+		update.Message.Text,
+		update.Message.From.ID,
+		update.Message.From.FirstName,
+		update.Message.From.UserName,
+		update.Message.From.LanguageCode,
+	)
 
 	recvUrl, err := url.Parse(update.Message.Text)
 	if err != nil || recvUrl == nil {
-		log.Println("first cond")
 		update.Message.Text = "Invalid url, try again."
 	} else if !validateInstaUrl(recvUrl) {
-		log.Println("sec cond")
 		update.Message.Text = "It's not an instagram url, try again."
 	} else {
-		log.Println("else")
-		recvUrl = addJsonRequestParam(recvUrl)
-		log.Printf("Requesting [%s]", recvUrl.String())
-		resp, err := http.Get(recvUrl.String())
-		if err != nil || resp == nil {
-			log.Println("error", err, "resoponse", resp)
-			update.Message.Text = "Failed to get a response from the link."
-		} else {
-			log.Printf("Reading body")
-			body, err := ioutil.ReadAll(resp.Body)
-			if err != nil {
-				update.Message.Text = "Failed to read a response from the link."
-			} else {
-				log.Printf("Extracting json xpath")
-				descriptionText := gjson.Get(string(body), "graphql.shortcode_media.edge_media_to_caption.edges.0.node.text")
-				log.Printf("Extracted result", descriptionText.Raw, descriptionText.String())
-				if !descriptionText.Exists() {
-					update.Message.Text = "Failed to read a response from the link."
-				} else {
-					update.Message.Text = descriptionText.String()
-				}
-			}
-
-			resp.Body.Close()
-		}
+		update.Message.Text = extractInstaTextFromUrl(recvUrl)
 	}
 
 	return update
+}
+
+func extractInstaTextFromUrl(recvUrl *url.URL) string {
+	recvUrl = addJsonRequestParam(recvUrl)
+	log.Printf("Requesting [%s]", recvUrl.String())
+	resp, err := http.Get(recvUrl.String())
+	if err != nil || resp == nil {
+		log.Println("error", err, "resoponse", resp)
+		return "Failed to get a response from the link."
+	}
+
+	text := ""
+	log.Printf("Reading body")
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		text = "Failed to read a response from the link."
+	} else {
+		text = generateResponseFromJsonBody(string(body))
+	}
+
+	err = resp.Body.Close()
+	if err != nil {
+		log.Println("Failed to close Body")
+	}
+
+	return text
+}
+
+func generateResponseFromJsonBody(body string) string {
+	log.Printf("Extracting json xpath")
+	descriptionText := gjson.Get(string(body), "graphql.shortcode_media.edge_media_to_caption.edges.0.node.text")
+	log.Printf("Extracted result [%s]", descriptionText.String())
+	if !descriptionText.Exists() {
+		return "Failed to read a response from the link."
+	}
+
+	return descriptionText.String()
 }
